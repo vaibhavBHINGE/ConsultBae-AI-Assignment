@@ -2,7 +2,7 @@
 Its an assignment for AI Automation Analyst / Developer at ConsultBee which includes 5 tasks 
 
 
-##Task_1:
+## Task 1:
 
 ## Overview
 This pipeline extracts raw, messy candidate data from three disparate CSV sources (Naukri, Gig Workers, and CBNexus), normalizes the fields, and executes a cascading matching logic to resolve duplicate entities. The final output is a pristine set of unique "Golden Records" stored in a relational MySQL database.
