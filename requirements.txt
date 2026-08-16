@@ -3,3 +3,9 @@ numpy
 SQLAlchemy
 PyMySQL
 python-dotenv
+fastapi
+uvicorn
+python-multipart
+pydub
+aiofiles
+appwrite
