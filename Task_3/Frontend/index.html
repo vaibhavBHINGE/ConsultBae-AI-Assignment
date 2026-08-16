@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Audio Collection App</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+        .card { border: 1px solid #ccc; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; }
+        .form-group { margin-bottom: 1rem; }
+        input[type="text"] { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+        button { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .record-btn { background: #dc3545; }
+        .record-btn.recording { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        audio { height: 35px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Submit Audio</h2>
+        <form id="submissionForm">
+            <div class="form-group">
+                <label>Name:</label>
+                <input type="text" id="name" required>
+            </div>
+            <div class="form-group">
+                <label>Phone:</label>
+                <input type="text" id="phone" required>
+            </div>
+            
+            <div class="form-group" style="display: flex; gap: 1rem; align-items: center;">
+                <div>
+                    <label>Upload File:</label><br>
+                    <input type="file" id="audioUpload" accept="audio/*">
+                </div>
+                <strong>OR</strong>
+                <div>
+                    <label>Record Mic:</label><br>
+                    <button type="button" id="recordBtn" class="record-btn">Start Recording</button>
+                    <span id="recordStatus" style="margin-left: 10px; font-size: 0.9em;"></span>
+                </div>
+            </div>
+
+            <button type="submit" id="submitBtn" style="width: 100%; margin-top: 1rem;">Submit Task</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Submissions Dashboard</h2>
+        <table id="dashboardTable">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Properties (Dur / Rate / Bit / dB)</th>
+                    <th>Quality</th>
+                    <th>Playback</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Rows injected via JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordedBlob = null;
+
+        // --- 1. Microphone Recording Logic ---
+        const recordBtn = document.getElementById('recordBtn');
+        const recordStatus = document.getElementById('recordStatus');
+        
+        recordBtn.addEventListener('click', async () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                recordBtn.textContent = "Start Recording";
+                recordBtn.classList.remove("recording");
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    recordStatus.textContent = "✅ Recording saved!";
+                    document.getElementById('audioUpload').value = ""; // Clear file input if mic used
+                };
+
+                mediaRecorder.start();
+                recordBtn.textContent = "Stop Recording";
+                recordBtn.classList.add("recording");
+                recordStatus.textContent = "Recording...";
+                
+            } catch (err) {
+                alert("Microphone access denied or not available.");
+            }
+        });
+
+        // --- 2. Form Submission Logic ---
+        document.getElementById('submissionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const fileInput = document.getElementById('audioUpload').files[0];
+            
+            if (!fileInput && !recordedBlob) {
+                alert("Please either upload an audio file or record one.");
+                return;
+            }
+
+            submitBtn.textContent = "Processing & Uploading...";
+            submitBtn.disabled = true;
+
+            const formData = new FormData();
+            formData.append("name", document.getElementById('name').value);
+            formData.append("phone", document.getElementById('phone').value);
+
+            // Determine which audio source to send
+            if (fileInput) {
+                formData.append("audio_file", fileInput);
+            } else if (recordedBlob) {
+                // Convert Blob to a File object so FastAPI processes it normally
+                const file = new File([recordedBlob], "recording.webm", { type: 'audio/webm' });
+                formData.append("audio_file", file);
+            }
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/submit', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    alert("Submission successful!");
+                    document.getElementById('submissionForm').reset();
+                    recordedBlob = null;
+                    recordStatus.textContent = "";
+                    loadDashboard(); // Refresh table
+                } else {
+                    const error = await response.json();
+                    alert("Error: " + error.detail);
+                }
+            } catch (err) {
+                alert("Network error occurred.");
+            } finally {
+                submitBtn.textContent = "Submit Task";
+                submitBtn.disabled = false;
+            }
+        });
+
+        // --- 3. Dashboard Data Loading ---
+        async function loadDashboard() {
+            const tbody = document.querySelector('#dashboardTable tbody');
+            tbody.innerHTML = "<tr><td colspan='5'>Loading...</td></tr>";
+            
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/submissions');
+                const data = await response.json();
+                
+                tbody.innerHTML = "";
+              // (Inside the loadDashboard function in index.html)
+                data.forEach(row => {
+                    const duration = row.duration ? row.duration.toFixed(2) : "0";
+                    const sampleRate = row.sample_rate ? (row.sample_rate / 1000).toFixed(1) : "0";
+                    const loudness = row.loudness ? row.loudness.toFixed(1) : "0";
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${row.name}</td>
+                            <td>${row.phone}</td>
+                            <td style="font-size: 0.85em; color: #555;">
+                                ${duration}s | ${sampleRate}kHz<br>
+                                ${row.bitrate}kbps | ${loudness}dB
+                            </td>
+                            <td>
+                                <audio controls src="http://127.0.0.1:8000${row.file_path}"></audio>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                tbody.innerHTML = "<tr><td colspan='5'>Failed to load data.</td></tr>";
+            }
+        }
+
+        // Load dashboard on page load
+        window.onload = loadDashboard;
+    </script>
+</body>
+</html>
