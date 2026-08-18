@@ -9,3 +9,4 @@ python-multipart
 pydub
 aiofiles
 appwrite
+audioop-lts
